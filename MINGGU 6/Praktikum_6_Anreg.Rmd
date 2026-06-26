@@ -1,0 +1,539 @@
+---
+title: "Praktikum 6 Anreg"
+author: "syauqyi"
+date: "`r Sys.Date()`"
+output:
+  rmdformats::downcute:
+    self_contained: true
+    default_style: "light"
+    downcute_theme: "chaos"
+    toc_depth: 3
+---
+
+# Library
+
+```{r, warning = FALSE, message = FALSE}
+library(readxl)    # untuk membaca data
+library(GGally)    # untuk menghasilkan matriks hubungan antarpeubah
+library(corrplot)  # untuk menghasilkan matriks korelasi
+library(dplyr)     # untuk manipulasi data
+library(car)       # untuk memeriksa multikolinearitas
+library(stargazer) # untuk menampilkan hasil perbandingan regresi
+library(lmtest)    # untuk uji kehomogenan ragam sisaan dan saling bebas
+library(olsrr)     # untuk pemeriksaan amatan tidak biasa
+```
+
+# Data
+
+Keterangan peubah yang digunakan:
+
+Y  = GOALS (Rata-rata gol per pertandingan)
+
+X1 = XG (Expected Goals per pertandingan)
+
+X2 = SHOTS (Rata-rata tembakan per pertandingan)
+
+X3 = SOT (Rata-rata tembakan tepat sasaran per pertandingan)
+
+X4 = AVG_POSS (Rata-rata penguasaan bola)
+
+X5 = TOU_IN_BOX (Rata-rata sentuhan di kotak penalti lawan per pertandingan)
+
+X6 = HEADERS (Rata-rata gol sundulan per pertandingan)
+
+X7 = FAST_BREAKS (Rata-rata serangan balik per pertandingan)
+
+X8 = PASS_F3RD_TOT (Rata-rata total umpan di sepertiga akhir)
+
+X9 = PASS_F3RD_SUC (Rata-rata umpan sukses di sepertiga akhir)
+
+X10 = CROSSES_TOT (Rata-rata total umpan silang per pertandingan)
+
+X11 = CROSS_SUC (Rata-rata umpan silang sukses per pertandingan)
+
+X12 = TROUGH_BALL (Rata-rata umpan terobosan per pertandingan)
+
+```{r}
+dt <- read_excel("D:\\SMT4\\ANREG\\UCL_Team_Goals_2526.xlsx")
+dt # menampilkan data
+```
+
+```{r}
+str(dt) # menampilkan tipe data setiap peubah
+```
+
+```{r}
+summary(dt) # menampilkan ringkasan data
+```
+
+Data yang digunakan adalah data statistik 36 tim yang berlaga di UEFA Champions League musim 2025/2026. Peubah respon yang digunakan adalah Y (GOALS), sedangkan peubah penjelas terdiri dari dua belas peubah kuantitatif, yaitu X1 hingga X12.
+
+Untuk mempermudah proses komputasi, peubah TEAM tidak digunakan dalam pemodelan karena hanya berfungsi sebagai identitas tim. Oleh karena itu, analisis dilakukan menggunakan Y sebagai peubah respon dan dua belas peubah penjelas. Seluruh peubah penjelas yang digunakan bersifat kuantitatif sehingga tidak diperlukan pembentukan data terpisah berdasarkan jenis peubah.
+
+```{r}
+dt <- dt %>%
+  select(-TEAM) %>%
+  mutate(across(everything(), as.numeric))
+
+# Versi dengan nama singkat untuk keperluan visualisasi
+dt_plot <- dt
+colnames(dt_plot) <- c("Y", "X1", "X2", "X3", "X4",
+                        "X5", "X6", "X7", "X8", "X9",
+                        "X10", "X11", "X12")
+```
+
+# Eksplorasi Data
+
+## Peubah Respon
+
+```{r}
+hist(dt_plot$Y, main = "Sebaran Y (GOALS)",
+     xlab = "GOALS", col = "steelblue", border = "white")
+```
+
+```{r}
+boxplot(dt_plot$Y, main = "Sebaran Y (GOALS)",
+        ylab = "GOALS", col = "steelblue")
+```
+
+## Peubah Penjelas vs Peubah Respon
+
+### X1
+
+```{r}
+plot(dt_plot$X1, dt_plot$Y, main = "X1 vs Y", xlab = "X1 (XG)", ylab = "Y (GOALS)")
+```
+
+Hubungan antara X1 (XG) dan Y (GOALS) menunjukkan pola linear positif yang sangat kuat. Hal ini sesuai dengan ekspektasi karena expected goals merupakan estimasi langsung dari peluang mencetak gol berdasarkan kualitas peluang yang diciptakan. Semakin tinggi nilai XG suatu tim, semakin besar pula rata-rata gol yang dicetak.
+
+### X2
+
+```{r}
+plot(dt_plot$X2, dt_plot$Y, main = "X2 vs Y", xlab = "X2 (SHOTS)", ylab = "Y (GOALS)")
+```
+
+Hubungan antara X2 (SHOTS) dan Y (GOALS) cenderung linear positif. Pola sebaran titik menunjukkan bahwa tim yang lebih sering melakukan tembakan cenderung mencetak lebih banyak gol. Meskipun demikian, terdapat variasi yang cukup besar, mengindikasikan bahwa frekuensi tembakan saja tidak cukup tanpa diimbangi akurasi.
+
+### X3
+
+```{r}
+plot(dt_plot$X3, dt_plot$Y, main = "X3 vs Y", xlab = "X3 (SOT)", ylab = "Y (GOALS)")
+```
+
+Hubungan antara X3 (SOT) dan Y (GOALS) menunjukkan pola linear positif yang kuat. Tembakan tepat sasaran memiliki hubungan yang lebih erat dengan gol dibandingkan total tembakan karena hanya tembakan yang mengarah ke gawang yang berpotensi menghasilkan gol. Tidak terlihat adanya pencilan yang mencolok pada plot ini.
+
+### X4
+
+```{r}
+plot(dt_plot$X4, dt_plot$Y, main = "X4 vs Y", xlab = "X4 (AVG_POSS)", ylab = "Y (GOALS)")
+```
+
+Hubungan antara X4 (AVG_POSS) dan Y (GOALS) menunjukkan pola linear positif yang cukup jelas. Tim dengan penguasaan bola lebih lama cenderung menciptakan lebih banyak peluang dan mencetak lebih banyak gol. Terdapat beberapa amatan dengan nilai penguasaan bola yang tinggi namun tidak selalu diiringi jumlah gol yang proporsional.
+
+### X5
+
+```{r}
+plot(dt_plot$X5, dt_plot$Y, main = "X5 vs Y", xlab = "X5 (TOU_IN_BOX)", ylab = "Y (GOALS)")
+```
+
+Hubungan antara X5 (TOU_IN_BOX) dan Y (GOALS) menunjukkan pola linear positif yang cukup kuat. Semakin sering tim menyentuh bola di kotak penalti lawan, semakin besar peluang untuk mencetak gol. Pola ini konsisten dengan intuisi taktis bahwa ancaman di area berbahaya berkorelasi langsung dengan produktivitas gol.
+
+### X6
+
+```{r}
+plot(dt_plot$X6, dt_plot$Y, main = "X6 vs Y", xlab = "X6 (HEADERS)", ylab = "Y (GOALS)")
+```
+
+Hubungan antara X6 (HEADERS) dan Y (GOALS) relatif lemah. Sebaran titik cukup acak dan tidak membentuk pola linear yang kuat, mengindikasikan bahwa gol sundulan memberikan kontribusi yang lebih kecil terhadap total gol dibandingkan peubah lainnya.
+
+### X7
+
+```{r}
+plot(dt_plot$X7, dt_plot$Y, main = "X7 vs Y", xlab = "X7 (FAST_BREAKS)", ylab = "Y (GOALS)")
+```
+
+Hubungan antara X7 (FAST_BREAKS) dan Y (GOALS) menunjukkan pola positif yang lemah hingga sedang. Tim yang lebih sering melakukan serangan balik cenderung memiliki rata-rata gol yang sedikit lebih tinggi, namun hubungannya tidak sekuat peubah tembakan maupun penguasaan bola.
+
+### X8
+
+```{r}
+plot(dt_plot$X8, dt_plot$Y, main = "X8 vs Y", xlab = "X8 (PASS_F3RD_TOT)", ylab = "Y (GOALS)")
+```
+
+Hubungan antara X8 (PASS_F3RD_TOT) dan Y (GOALS) menunjukkan pola linear positif yang cukup jelas. Tim yang lebih banyak mengalirkan umpan ke sepertiga akhir lapangan cenderung mencetak lebih banyak gol karena lebih sering menciptakan peluang di zona berbahaya.
+
+### X9
+
+```{r}
+plot(dt_plot$X9, dt_plot$Y, main = "X9 vs Y", xlab = "X9 (PASS_F3RD_SUC)", ylab = "Y (GOALS)")
+```
+
+Hubungan antara X9 (PASS_F3RD_SUC) dan Y (GOALS) hampir identik dengan X8 karena kedua peubah mengukur umpan di zona yang sama. Pola linear positif terlihat jelas dan korelasinya dengan peubah respon cukup tinggi. Kemiripan pola ini mengonfirmasi adanya korelasi tinggi antara X8 dan X9 yang perlu diperhatikan dalam konteks multikolinearitas.
+
+### X10
+
+```{r}
+plot(dt_plot$X10, dt_plot$Y, main = "X10 vs Y", xlab = "X10 (CROSSES_TOT)", ylab = "Y (GOALS)")
+```
+
+Hubungan antara X10 (CROSSES_TOT) dan Y (GOALS) relatif lemah dan sebaran titik cukup acak. Hal ini mengindikasikan bahwa total umpan silang tidak memiliki hubungan yang kuat dengan jumlah gol yang dicetak, kemungkinan karena banyak umpan silang yang tidak menghasilkan peluang berbahaya.
+
+### X11
+
+```{r}
+plot(dt_plot$X11, dt_plot$Y, main = "X11 vs Y", xlab = "X11 (CROSS_SUC)", ylab = "Y (GOALS)")
+```
+
+Hubungan antara X11 (CROSS_SUC) dan Y (GOALS) juga relatif lemah, serupa dengan X10. Meskipun umpan silang sukses lebih relevan dibandingkan total umpan silang, hubungannya dengan gol tetap tidak terlalu kuat karena tidak semua umpan silang yang berhasil mengarah ke peluang tembakan.
+
+### X12
+
+```{r}
+plot(dt_plot$X12, dt_plot$Y, main = "X12 vs Y", xlab = "X12 (TROUGH_BALL)", ylab = "Y (GOALS)")
+```
+
+Hubungan antara X12 (TROUGH_BALL) dan Y (GOALS) menunjukkan pola linear positif yang cukup kuat. Tim yang lebih sering melakukan umpan terobosan cenderung mencetak lebih banyak gol karena umpan terobosan yang berhasil biasanya menciptakan peluang satu lawan satu yang sangat berbahaya.
+
+## Korelasi
+
+```{r fig.width=12, fig.height=12}
+ggpairs(dt_plot,
+        upper = list(continuous = wrap("cor", size = 3)),
+        title = "Matriks Scatterplot Data UCL 2025/2026")
+```
+
+```{r fig.width=9, fig.height=8}
+cor_matrix <- cor(dt_plot, use = "complete.obs")
+
+corrplot(cor_matrix, method = "color", type = "lower",
+         col = colorRampPalette(c("red", "white", "blue"))(200),
+         addCoef.col = "black", number.cex = 0.65,
+         tl.col = "black", tl.srt = 45, tl.cex = 0.85)
+```
+
+Hasil matriks scatterplot dan korelasi menunjukkan bahwa peubah respon Y (GOALS) memiliki hubungan positif dengan hampir seluruh peubah penjelas. Hubungan positif terkuat ditunjukkan oleh X1 (XG) dan X3 (SOT), sedangkan X10 (CROSSES_TOT) dan X11 (CROSS_SUC) memiliki korelasi yang paling lemah bahkan cenderung negatif dengan Y.
+
+Selain itu, terdapat beberapa korelasi yang sangat tinggi antar peubah penjelas, terutama antara X8 (PASS_F3RD_TOT) dan X9 (PASS_F3RD_SUC) yang mendekati sempurna. Hal ini mengindikasikan kemungkinan adanya multikolinearitas yang perlu diperiksa lebih lanjut.
+
+# Pemodelan
+
+```{r}
+model1 <- lm(formula = GOALS ~ ., data = dt)
+summary(model1)
+```
+
+Berdasarkan ringkasan model, persamaan regresi berganda yang terbentuk adalah sebagai berikut.
+
+$$
+\hat{Y} = \hat{\beta}_0 + \hat{\beta}_1 X_1 + \hat{\beta}_2 X_2 + \cdots + \hat{\beta}_{12} X_{12}
+$$
+
+Secara simultan, terdapat minimal satu peubah penjelas yang berpengaruh signifikan terhadap Y (GOALS), yang ditunjukkan oleh nilai p-value uji F yang lebih kecil dari 0,05. Secara parsial, dapat diidentifikasi peubah-peubah yang signifikan pada taraf nyata 5%. Nilai Adjusted R² mencerminkan proporsi keragaman peubah respon yang dapat dijelaskan oleh seluruh peubah penjelas dalam model, sedangkan sisanya dijelaskan oleh faktor lain di luar model seperti strategi pelatih, kondisi fisik pemain, dan faktor nonteknis lainnya.
+
+# Pemeriksaan Multikolinearitas
+
+## Perubahan Peubah
+
+```{r}
+mod1 <- lm(GOALS ~ ., dt[, 1:2])
+mod2 <- lm(GOALS ~ ., dt[, 1:3])
+mod3 <- lm(GOALS ~ ., dt[, 1:4])
+mod4 <- lm(GOALS ~ ., dt[, 1:5])
+mod5 <- lm(GOALS ~ ., dt)
+
+stargazer(mod1, mod2, mod3, mod4, mod5,
+          type = "text", single.row = TRUE)
+```
+
+Berdasarkan hasil pemodelan bertahap, apabila tanda dan besaran koefisien regresi berubah secara drastis ketika peubah penjelas ditambahkan, hal tersebut merupakan indikasi adanya multikolinearitas. Sebaliknya, apabila koefisien relatif stabil, maka model tidak mengalami masalah multikolinearitas yang serius.
+
+## Perubahan Banyak Data
+
+```{r}
+mod5_1 <- lm(GOALS ~ ., dt[1:18, ])
+
+stargazer(summary(mod5)$coefficients,
+          summary(mod5_1)$coefficients,
+          type = "text",
+          font.size = "small")
+```
+
+Hasil perbandingan menunjukkan perubahan koefisien regresi ketika jumlah amatan dikurangi dari 36 menjadi 18 observasi. Apabila arah pengaruh koefisien tetap konsisten, model masih menunjukkan kestabilan yang cukup baik meskipun terdapat perubahan nilai koefisien akibat berkurangnya informasi dari data.
+
+## Akar Ciri
+
+```{r}
+x_mat <- dt[, -1]
+r     <- cor(x_mat)
+(ev   <- eigen(r)$values)
+```
+
+```{r}
+# Simultan
+if ((max(ev) / min(ev)) <= 100) {
+  cat("Tidak ada multikolinearitas\n")
+} else if ((max(ev) / min(ev)) > 100 & (max(ev) / min(ev)) <= 1000) {
+  cat("Ada multikolinearitas yang lemah\n")
+} else {
+  cat("Ada multikolinearitas yang kuat\n")
+}
+```
+
+```{r}
+# Parsial
+if (all((max(ev) / ev) <= 1000)) {
+  cat("Tidak ada multikolinearitas\n")
+} else {
+  cat("Ada multikolinearitas pada peubah penjelas ke:", which((max(ev) / ev) > 1000), "\n")
+}
+```
+
+## Nilai VIF
+
+```{r}
+vif(model1)
+```
+
+Hasil pemeriksaan akar ciri dan VIF digunakan untuk menentukan ada atau tidaknya multikolinearitas pada model. Nilai VIF di bawah 5 mengindikasikan tidak ada multikolinearitas serius, nilai 5–10 mengindikasikan multikolinearitas sedang, dan nilai di atas 10 mengindikasikan multikolinearitas berat. Mengingat korelasi yang sangat tinggi antara X8 (PASS_F3RD_TOT) dan X9 (PASS_F3RD_SUC), kemungkinan besar terdapat nilai VIF yang tinggi pada kedua peubah tersebut sehingga perlu mendapat perhatian khusus.
+
+# Pengujian Asumsi
+
+## Eksplorasi Grafik
+
+### Plot Sisaan vs Y Duga
+
+```{r}
+plot(model1, 1)
+```
+
+Berdasarkan grafik Residuals vs Fitted, sisaan yang tersebar secara acak di sekitar garis nol tanpa membentuk pola tertentu mengindikasikan bahwa asumsi linearitas dan homoskedastisitas terpenuhi. Apabila terdapat pola lengkung atau corong, perlu dilakukan transformasi atau penyesuaian model lebih lanjut.
+
+### Plot Sisaan vs Urutan
+
+```{r}
+plot(x = 1:dim(dt)[1],
+     y = model1$residuals,
+     type = "b",
+     ylab = "Residuals",
+     xlab = "Observation")
+```
+
+Berdasarkan grafik sisaan terhadap urutan pengamatan, pola acak di sekitar garis nol mengindikasikan bahwa asumsi kebebasan sisaan (independence of errors) secara visual terpenuhi. Tidak adanya tren sistematis menunjukkan tidak terdapat autokorelasi antar sisaan.
+
+### QQ Plot
+
+```{r}
+plot(model1, 2)
+```
+
+Berdasarkan grafik Normal Q-Q Plot, sebagian besar titik sisaan yang berada di sekitar garis diagonal mengindikasikan bahwa distribusi sisaan cenderung mengikuti distribusi normal. Penyimpangan pada bagian ekor perlu diperhatikan namun tidak selalu menunjukkan pelanggaran asumsi yang serius.
+
+## Uji Formal
+
+### Nilai Harapan Sisaan Sama dengan Nol
+
+```{r}
+t.test(model1$residuals, mu = 0, conf.level = 0.95)
+```
+
+Berdasarkan hasil uji One Sample t-test, apabila nilai p-value lebih besar dari taraf signifikansi 5%, maka gagal menolak H₀ sehingga asumsi nilai harapan sisaan sama dengan nol dapat dianggap terpenuhi.
+
+### Ragam Sisaan Homogen
+
+```{r}
+bptest(model1)
+```
+
+Berdasarkan hasil uji Breusch-Pagan, apabila nilai p-value lebih besar dari taraf signifikansi 5%, maka gagal menolak H₀ sehingga tidak terdapat bukti adanya heteroskedastisitas dan asumsi ragam sisaan homogen dapat dianggap terpenuhi.
+
+### Sisaan Saling Bebas
+
+```{r}
+dwtest(model1)
+```
+
+Berdasarkan hasil uji Durbin-Watson, apabila nilai p-value lebih besar dari taraf signifikansi 5% dan nilai statistik DW mendekati 2, maka gagal menolak H₀ sehingga asumsi independensi sisaan dapat dianggap terpenuhi.
+
+### Normalitas Sisaan
+
+```{r}
+shapiro.test(model1$residuals)
+```
+
+Berdasarkan hasil uji Shapiro-Wilk, apabila nilai p-value lebih besar dari taraf signifikansi 5%, maka gagal menolak H₀ sehingga asumsi normalitas sisaan dapat dianggap terpenuhi.
+
+# Pemeriksaan Amatan Tidak Biasa
+
+```{r}
+# Fungsi
+ri_stud    <- rstudent(model1)
+ri_stan    <- rstandard(model1)
+hii_fungsi <- hatvalues(model1)
+
+# Manual
+X          <- model.matrix(model1)
+X_inv_xt   <- X %*% solve(t(X) %*% X) %*% t(X)
+hii_manual <- diag(X_inv_xt)
+anova_model <- anova(model1)
+s          <- sqrt(anova_model["Residuals", "Mean Sq"])
+ei         <- model1$residuals
+ri_manual  <- ei / (s * sqrt(1 - hii_manual))
+
+nilai <- data.frame(ri_stud, ri_stan, ri_manual, hii_fungsi, hii_manual)
+nilai
+```
+
+## Pencilan
+
+```{r}
+for (i in 1:dim(nilai)[1]) {
+  absri   <- abs(nilai[, 2])
+  pencilan <- which(absri > 2)
+}
+pencilan
+```
+
+Amatan dengan nilai sisaan baku mutlak melebihi 2 teridentifikasi sebagai pencilan. Pencilan tersebut perlu mendapat perhatian lebih lanjut karena dapat memengaruhi kestabilan model regresi.
+
+## Leverage
+
+```{r}
+n <- dim(dt)[1]
+p <- length(model1$coefficients)
+
+for (i in 1:dim(nilai)[1]) {
+  cutoff        <- 2 * p / n
+  titik_leverage <- which(hii_fungsi > cutoff)
+}
+titik_leverage
+```
+
+Amatan dengan nilai leverage melebihi batas $2p/n$ teridentifikasi sebagai titik leverage. Titik leverage menunjukkan amatan yang memiliki nilai peubah penjelas yang ekstrem sehingga berpotensi memengaruhi pendugaan model secara keseluruhan.
+
+```{r}
+ols_plot_resid_lev(model1)
+```
+
+Plot yang terbentuk dari fungsi `ols_plot_resid_lev()` menunjukkan posisi setiap amatan berdasarkan nilai sisaan terstandarisasi dan leverage. Amatan yang berada di luar batas kedua dimensi secara bersamaan merupakan amatan yang paling berpotensi memengaruhi model dan perlu mendapat perhatian khusus.
+
+## Amatan Berpengaruh
+
+### Jarak Cook
+
+```{r}
+di <- cooks.distance(model1)
+f  <- qf(0.05, p, n - p, lower.tail = FALSE)
+data.frame(di, di > f)
+```
+
+```{r}
+library(ggplot2)
+cooks_crit  <- f
+model_cooks <- cooks.distance(model1)
+df_cook     <- data.frame(obs   = names(model_cooks),
+                           cooks = model_cooks)
+
+ggplot(df_cook, aes(y = cooks, x = obs)) +
+  geom_point() +
+  geom_hline(yintercept = cooks_crit, linetype = "dashed") +
+  labs(title    = "Cook's Distance",
+       subtitle = "Influential Observation",
+       x        = "Observation Number",
+       y        = "Cook's Distance")
+```
+
+Berdasarkan grafik Cook's Distance, amatan yang memiliki nilai Cook's Distance melebihi ambang batas teridentifikasi sebagai amatan berpengaruh (influential observation). Amatan berpengaruh dapat mendistorsi pendugaan parameter secara signifikan sehingga perlu dipertimbangkan untuk disisihkan dari pemodelan.
+
+### DFBETAS
+
+```{r}
+ols_plot_dfbetas(model1)
+```
+
+Berdasarkan grafik DFBETAS, amatan yang memiliki nilai DFBETAS melebihi ambang batas $\pm 2/\sqrt{n}$ mengindikasikan pengaruh yang besar terhadap pendugaan koefisien regresi tertentu. Amatan-amatan tersebut perlu diperhatikan lebih lanjut karena kontribusinya yang relatif besar terhadap pendugaan parameter model.
+
+### DFFITS
+
+```{r}
+ols_plot_dffits(model1)
+```
+
+```{r}
+DFFITSi <- dffits(model1)
+
+amatan_berpengaruh <- vector("list", dim(nilai)[1])
+for (i in 1:dim(nilai)[1]) {
+  cutoff               <- 2 * sqrt(p / n)
+  amatan_berpengaruh[[i]] <- which(abs(DFFITSi) > cutoff)
+}
+berpengaruh         <- unlist(amatan_berpengaruh)
+amatan_berpengaruh  <- sort(unique(berpengaruh))
+amatan_berpengaruh
+```
+
+Berdasarkan nilai DFFITS, amatan yang memiliki nilai DFFITS melebihi ambang batas $\pm 2\sqrt{p/n}$ teridentifikasi sebagai amatan berpengaruh terhadap nilai prediksi Y. Amatan-amatan tersebut perlu mendapat perhatian lebih lanjut dalam proses diagnosis model karena memberikan pengaruh yang relatif besar terhadap hasil prediksi.
+
+# Pemodelan Penyisihan Amatan
+
+```{r}
+# Daftar indeks amatan berpengaruh yang akan disisihkan
+# (sesuaikan dengan hasil amatan_berpengaruh di atas)
+idx <- amatan_berpengaruh
+
+dt1 <- dt %>% slice(-idx[1])
+model3 <- lm(GOALS ~ ., data = dt1)
+
+dt2 <- dt %>% slice(-idx[2])
+model4 <- lm(GOALS ~ ., data = dt2)
+
+dt3 <- dt %>% slice(-idx[3])
+model5 <- lm(GOALS ~ ., data = dt3)
+
+dt4 <- dt %>% slice(-idx[1:2])
+model6 <- lm(GOALS ~ ., data = dt4)
+
+dt5 <- dt %>% slice(-idx[c(1, 3)])
+model7 <- lm(GOALS ~ ., data = dt5)
+
+dt6 <- dt %>% slice(-idx[2:3])
+model8 <- lm(GOALS ~ ., data = dt6)
+
+dt7 <- dt %>% slice(-idx[1:3])
+model9 <- lm(GOALS ~ ., data = dt7)
+```
+
+```{r}
+get_metrics <- function(model) {
+  adj_r2 <- summary(model)$adj.r.squared
+  sse    <- sum(model$residuals^2)
+  return(c(adj_r2, sse))
+}
+
+model_metrics <- data.frame(
+  Model = c("Model 1", "Model 3", "Model 4", "Model 5",
+            "Model 6", "Model 7", "Model 8", "Model 9"),
+  Adjusted_R2 = sapply(
+    list(model1, model3, model4, model5,
+         model6, model7, model8, model9),
+    function(m) get_metrics(m)[1]
+  ),
+  SSE = sapply(
+    list(model1, model3, model4, model5,
+         model6, model7, model8, model9),
+    function(m) get_metrics(m)[2]
+  )
+)
+
+print(model_metrics)
+```
+
+Berdasarkan hasil perbandingan model, model dengan nilai Adjusted R² tertinggi dan SSE terendah dipilih sebagai model terbaik. Penyisihan amatan yang teridentifikasi sebagai pencilan dan amatan berpengaruh diharapkan dapat meningkatkan kemampuan penjelasan model dan mengurangi galat prediksi.
+
+```{r}
+stargazer(model1, model9,
+          type = "text",
+          font.size = "small",
+          report = "vc*p")
+```
+
+Berdasarkan perbandingan Model 1 (penuh) dan Model 9 (setelah penyisihan amatan berpengaruh), dapat dievaluasi apakah penyisihan amatan menghasilkan peningkatan kualitas model yang ditunjukkan oleh meningkatnya nilai Adjusted R² dan menurunnya nilai Residual Standard Error. Arah pengaruh seluruh peubah penjelas juga dibandingkan untuk memastikan konsistensi model setelah penyisihan amatan dilakukan.
