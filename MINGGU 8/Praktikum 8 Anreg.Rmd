@@ -1,0 +1,228 @@
+---
+title: "Pertemuan 8"
+author: "syauqyi"
+date: "`r Sys.Date()`"
+output:
+  rmdformats::downcute:
+    self_contained: true
+    default_style: "light"
+    downcute_theme: "chaos"
+    toc_depth: 3
+---
+
+# Package
+
+```{r message=FALSE, warning=FALSE}
+library(readxl)
+library(car)     # untuk multikolinearitas
+library(olsrr)   # untuk best subset
+library(MASS)    # untuk forward, backward, dan stepwise
+library(glmnet)  # untuk ridge dan lasso
+library(dplyr)
+```
+
+# Uji F Parsial dan Sekuensial
+
+```{r}
+data(mtcars)
+head(mtcars)
+```
+
+Kita Pakai : Y = mpg, X1 = wt, X2 = hp, X3 = disp
+
+## F Sekuensial
+
+```{r}
+# Model 1: tanpa prediktor
+m1 <- lm(mpg ~ 1, data = mtcars)
+
+# Model 2: tambah wt
+m2 <- lm(mpg ~ wt, data = mtcars)
+
+# Model 3: tambah hp
+m3 <- lm(mpg ~ wt + hp, data = mtcars)
+
+# Model 4: tambah disp
+m4 <- lm(mpg ~ wt + hp + disp, data = mtcars)
+```
+
+```{r}
+anova(m1, m2, m3, m4)
+```
+
+Variabel wt berpengaruh signifikan terhadap mpg (p < 0.001).
+Setelah memasukkan wt, variabel hp masih memberikan tambahan pengaruh yang signifikan (p ≈ 0.0018).
+Namun, setelah wt dan hp ada dalam model, variabel disp tidak memberikan pengaruh tambahan yang signifikan (p ≈ 0.93).
+
+Kesimpulan: Model yang cukup baik adalah mpg ∼ wt + hp, karena penambahan disp tidak meningkatkan kemampuan model secara signifikan.
+
+## F Parsial
+
+Akan diuji apakah hp signifikan setelah semua variabel lain dikontrol.
+
+```{r}
+# Full model
+full_mtcars <- lm(mpg ~ wt + hp + disp, data = mtcars)
+
+# Reduced (tanpa hp)
+red_mtcars <- lm(mpg ~ wt + disp, data = mtcars)
+
+anova(red_mtcars, full_mtcars)
+```
+
+Variabel hp berpengaruh signifikan terhadap mpg setelah mengontrol wt dan disp (p < 0.05).
+
+
+# Data
+
+Data yang digunakan terdiri atas 36 amatan yang merepresentasikan 36 tim peserta UEFA Champions League (UCL) musim 2025/2026. Peubah respon yang digunakan adalah Y (rata-rata gol per laga), sedangkan peubah penjelas yang digunakan adalah X1, X2, X3, X4, X5, dan X6. Pada bagian ini dilakukan pemodelan regresi untuk menguji pengaruh peubah-peubah penjelas terhadap produktivitas gol setiap tim.
+
+Keterangan peubah yang digunakan:
+
+Y  = GOALS (rata-rata gol per laga)
+
+X1 = SHOTS (rata-rata total tembakan per laga)
+
+X2 = SOT (rata-rata tembakan tepat sasaran per laga)
+
+X3 = AVG_POSS (rata-rata penguasaan bola, %)
+
+X4 = TOU_IN_BOX (rata-rata sentuhan di kotak penalti lawan per laga)
+
+X5 = FAST_BREAKS (rata-rata serangan balik per laga)
+
+X6 = TROUGH_BALL (rata-rata umpan terobosan per laga)
+
+```{r}
+data <- read_excel("D:\\SMT4\\ANREG\\UCL_Team_Goals_2526.xlsx")
+
+df_anreg <- data[, c("GOALS", "SHOTS", "SOT", "AVG_POSS",
+                     "TOU_IN_BOX", "FAST_BREAKS", "TROUGH_BALL")]
+
+names(df_anreg) <- c("Y", "X1", "X2", "X3", "X4", "X5", "X6")
+
+df_anreg$Y  <- as.numeric(df_anreg$Y)
+df_anreg$X1 <- as.numeric(df_anreg$X1)
+df_anreg$X2 <- as.numeric(df_anreg$X2)
+df_anreg$X3 <- as.numeric(df_anreg$X3)
+df_anreg$X4 <- as.numeric(df_anreg$X4)
+df_anreg$X5 <- as.numeric(df_anreg$X5)
+df_anreg$X6 <- as.numeric(df_anreg$X6)
+```
+
+# Pemodelan Awal
+
+```{r}
+class(df_anreg)
+names(df_anreg)
+str(df_anreg)
+```
+
+```{r}
+model1 <- lm(Y ~ ., data = df_anreg)
+summary(model1)
+```
+
+Persamaan regresi yang terbentuk dari seluruh peubah penjelas menghasilkan nilai koefisien determinasi (R²) dan Adjusted R² yang menunjukkan seberapa besar keragaman rata-rata gol per laga (Y) dapat dijelaskan oleh peubah-peubah penjelas dalam model. Hasil pengujian parsial menunjukkan peubah-peubah mana yang berpengaruh signifikan terhadap Y pada taraf nyata 5%.
+
+$$
+\hat{Y} = \hat{\beta}_0 + \hat{\beta}_1 X_1 + \hat{\beta}_2 X_2 + \hat{\beta}_3 X_3 + \hat{\beta}_4 X_4 + \hat{\beta}_5 X_5 + \hat{\beta}_6 X_6
+$$
+
+# Pemeriksaan Multikolinieritas
+
+```{r}
+vif(model1)
+```
+
+Hasil pemeriksaan nilai VIF menunjukkan apakah terdapat multikolinearitas antar peubah penjelas. Jika nilai VIF < 10 untuk seluruh peubah, maka tidak ditemukan masalah multikolinearitas yang serius dalam model.
+
+# Penyeleksian Peubah
+
+## Best Subset
+
+```{r}
+bs <- ols_step_best_subset(model1)
+bs
+```
+
+## Backward, Forward, dan Stepwise
+
+```{r}
+null <- lm(Y ~ 1, data = df_anreg)   # model tanpa peubah penjelas
+full <- lm(Y ~ ., data = df_anreg)   # model dengan seluruh peubah
+
+step(full,
+     scope = list(lower = null, upper = full),
+     data = df_anreg,
+     direction = "backward",
+     trace = 0)
+```
+
+```{r}
+step(null,
+     scope = list(lower = null, upper = full),
+     data = df_anreg,
+     direction = "forward",
+     trace = 0)
+```
+
+```{r}
+step(null,
+     scope = list(lower = null, upper = full),
+     data = df_anreg,
+     direction = "both",
+     trace = 0)
+```
+
+Hasil penyeleksian melalui best subset, backward, forward, dan stepwise dapat menghasilkan model terbaik yang memuat peubah-peubah penjelas dengan kontribusi signifikan terhadap rata-rata gol tim UCL musim 2025/2026.
+
+```{r}
+# Sesuaikan peubah di bawah ini berdasarkan hasil seleksi yang diperoleh
+model2 <- lm(Y ~ X2 + X4, data = df_anreg)
+summary(model2)
+```
+
+```{r}
+AIC(model2); BIC(model2)
+```
+
+Model tereduksi yang diperoleh memuat peubah penjelas terpilih. Nilai Adjusted R² menunjukkan proporsi keragaman Y yang dapat dijelaskan oleh model ini. Nilai AIC dan BIC digunakan sebagai kriteria pemilihan model terbaik. Jika metode seleksi menghasilkan model yang berbeda, perbandingan dapat dilakukan menggunakan MSE, Adjusted R², AIC, BIC, dan kriteria lainnya.
+
+$$
+\hat{Y} = \hat{\beta}_0 + \hat{\beta}_2 X_2 + \hat{\beta}_4 X_4
+$$
+
+# Shrinkage Methods
+
+## Ridge
+
+```{r}
+x <- as.matrix(df_anreg[, c("X1","X2","X3","X4","X5","X6")])
+y <- df_anreg$Y
+
+rid <- cv.glmnet(x, y, alpha = 0, nfolds = 5)  # Ridge regression
+# nfolds = 5 digunakan karena ukuran sampel relatif kecil (n = 36)
+rid
+coef(rid, s = "lambda.min")
+```
+
+Hasil pemodelan Ridge Regression menghasilkan nilai lambda optimum yang diperoleh melalui validasi silang (cross-validation) dengan 5 lipat. Seluruh peubah penjelas tetap masuk ke dalam model dengan koefisien yang mengalami penyusutan (shrinkage) dibandingkan regresi linear biasa. Karena Ridge tidak melakukan seleksi peubah secara otomatis, keenam peubah tetap dipertahankan dalam model.
+
+$$
+\hat{Y}_{\text{Ridge}} = \hat{\beta}_0 + \hat{\beta}_1 X_1 + \hat{\beta}_2 X_2 + \hat{\beta}_3 X_3 + \hat{\beta}_4 X_4 + \hat{\beta}_5 X_5 + \hat{\beta}_6 X_6
+$$
+
+## Lasso
+
+```{r}
+lass <- cv.glmnet(x, y, alpha = 1, nfolds = 5)
+lass
+coef(lass, s = "lambda.min")
+```
+
+Hasil pemodelan Lasso menghasilkan nilai lambda optimum yang diperoleh melalui validasi silang (cross-validation) dengan 5 lipat. Berbeda dengan Ridge Regression, Lasso dapat melakukan penyusutan sekaligus seleksi peubah secara otomatis — peubah dengan koefisien yang menyusut hingga nol akan dieliminasi dari model. Hal ini menjadikan Lasso lebih interpretatif ketika sejumlah peubah diduga tidak relevan terhadap produktivitas gol tim UCL.
+
+$$
+\hat{Y}_{\text{Lasso}} = \hat{\beta}_0 + \hat{\beta}_1 X_1 + \hat{\beta}_2 X_2 + \hat{\beta}_3 X_3 + \hat{\beta}_4 X_4 + \hat{\beta}_5 X_5 + \hat{\beta}_6 X_6
+$$
