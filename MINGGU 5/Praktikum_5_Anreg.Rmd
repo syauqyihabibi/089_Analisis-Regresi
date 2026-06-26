@@ -1,0 +1,199 @@
+---
+title: "Praktikum 5 Anreg"
+author: "syauqyi"
+date: "`r Sys.Date()`"
+output:
+  rmdformats::readthedown
+---
+
+# Library
+
+```{r}
+library(readxl)    # untuk membaca data
+library(GGally)    # untuk menghasilkan matriks hubungan antarpeubah
+library(corrplot)  # untuk menghasilkan matriks korelasi
+library(dplyr)     # untuk manipulasi data
+library(car)       # untuk memeriksa multikolinearitas
+```
+
+# Data
+
+Keterangan peubah yang digunakan:
+
+Y  = GOALS (Rata-rata gol per pertandingan)
+
+X1 = XG (Expected Goals per pertandingan)
+
+X2 = SHOTS (Rata-rata tembakan per pertandingan)
+
+X3 = SOT (Rata-rata tembakan tepat sasaran per pertandingan)
+
+X4 = AVG_POSS (Rata-rata penguasaan bola)
+
+X5 = TOU_IN_BOX (Rata-rata sentuhan di kotak penalti lawan per pertandingan)
+
+X6 = HEADERS (Rata-rata gol sundulan per pertandingan)
+
+X7 = FAST_BREAKS (Rata-rata serangan balik per pertandingan)
+
+X8 = PASS_F3RD_TOT (Rata-rata total umpan di sepertiga akhir)
+
+X9 = PASS_F3RD_SUC (Rata-rata umpan sukses di sepertiga akhir)
+
+X10 = CROSSES_TOT (Rata-rata total umpan silang per pertandingan)
+
+X11 = CROSS_SUC (Rata-rata umpan silang sukses per pertandingan)
+
+X12 = TROUGH_BALL (Rata-rata umpan terobosan per pertandingan)
+
+```{r}
+data <- read_excel("D:\\SMT4\\ANREG\\UCL_Team_Goals_2526.xlsx")
+head(data) # menampilkan sekian data awal
+str(data)  # menampilkan tipe data setiap peubah
+summary(data) # menampilkan ringkasan data
+```
+
+Data yang digunakan adalah data statistik 36 tim yang berlaga di UEFA Champions League musim 2025/2026. Peubah respon yang digunakan adalah GOALS (rata-rata gol per pertandingan), sedangkan peubah penjelas terdiri dari dua belas peubah kuantitatif, yaitu expected goals (XG), rata-rata tembakan, tembakan tepat sasaran, penguasaan bola, sentuhan di kotak penalti lawan, gol sundulan, serangan balik, total umpan di sepertiga akhir, umpan sukses di sepertiga akhir, total umpan silang, umpan silang sukses, dan umpan terobosan.
+
+Untuk mempermudah proses komputasi, peubah TEAM tidak digunakan karena hanya berfungsi sebagai identitas tim. Oleh karena itu, analisis hanya dilakukan menggunakan GOALS sebagai peubah respon dan dua belas peubah penjelas kuantitatif. Pada praktikum ini tidak dilakukan pemisahan data berdasarkan peubah kualitatif karena seluruh peubah penjelas yang digunakan bersifat kuantitatif.
+
+```{r}
+data <- data %>%
+  select(-TEAM) %>%
+  mutate(across(everything(), as.numeric))
+
+dt <- data
+
+# Versi dengan nama singkat untuk keperluan visualisasi
+dt_plot <- dt
+colnames(dt_plot) <- c("Y", "X1", "X2", "X3", "X4",
+                        "X5", "X6", "X7", "X8", "X9",
+                        "X10", "X11", "X12")
+```
+
+# Eksplorasi Data
+
+```{r}
+hist(dt_plot$Y, main = "Sebaran Y (GOALS)",
+     xlab = "GOALS", col = "steelblue", border = "white")
+```
+
+```{r}
+boxplot(dt_plot$Y, main = "Sebaran Y (GOALS)",
+        ylab = "GOALS", col = "steelblue")
+```
+
+```{r fig.width=12, fig.height=12}
+ggpairs(dt_plot,
+        upper = list(continuous = wrap("cor", size = 3)),
+        title = "Matriks Scatterplot Data UCL 2025/2026")
+```
+
+```{r fig.width=9, fig.height=8}
+cor_matrix <- cor(dt_plot, use = "complete.obs")
+
+corrplot(cor_matrix, method = "color", type = "lower",
+         col = colorRampPalette(c("red", "white", "blue"))(200),
+         addCoef.col = "black", number.cex = 0.65,
+         tl.col = "black", tl.srt = 45, tl.cex = 0.85)
+```
+
+Hasil matriks scatterplot dan korelasi menunjukkan bahwa peubah respon Y (GOALS) memiliki hubungan positif dengan hampir seluruh peubah penjelas. Hubungan terkuat dengan peubah respon ditunjukkan oleh X1 (XG) dan X3 (SOT) yang memiliki koefisien korelasi tinggi, mencerminkan bahwa kualitas tembakan dan tembakan tepat sasaran merupakan faktor utama yang memengaruhi jumlah gol yang dicetak tim di UCL 2025/2026.
+
+Selain itu, terdapat beberapa korelasi yang cukup tinggi antar peubah penjelas, terutama antara X8 (PASS_F3RD_TOT) dan X9 (PASS_F3RD_SUC) yang menunjukkan hubungan sangat kuat karena keduanya mengukur umpan di zona yang sama. Demikian pula korelasi antara X2 (SHOTS) dan X3 (SOT) yang cukup tinggi. Hal ini mengindikasikan kemungkinan adanya multikolinearitas yang perlu diperiksa lebih lanjut.
+
+# Pemodelan
+
+## Tanpa Fungsi
+
+Perhitungan nilai $\hat{\beta}$ secara matriks dapat dilakukan dengan rumus berikut.
+
+$$\hat{\beta} = (X'X)^{-1} X'y$$
+
+```{r}
+n <- nrow(dt)
+
+x0 <- rep(1, n)
+
+x <- data.frame(x0,
+                dt$XG, dt$SHOTS, dt$SOT,
+                dt$AVG_POSS, dt$TOU_IN_BOX, dt$HEADERS,
+                dt$FAST_BREAKS, dt$PASS_F3RD_TOT, dt$PASS_F3RD_SUC,
+                dt$CROSSES_TOT, dt$CROSS_SUC, dt$TROUGH_BALL)
+
+x <- as.matrix(x)
+
+y <- dt$GOALS
+```
+
+```{r}
+beta_duga <- solve(t(x)%*%x)%*%t(x)%*%y
+beta_duga
+```
+
+Hasil tersebut menjelaskan persamaan regresi berganda yang terbentuk dari seluruh peubah penjelas dalam memetakan karakteristik serangan tim terhadap rata-rata gol per pertandingan di UCL 2025/2026.
+
+Selang kepercayaan dan pengujian signifikansi setiap parameter dapat dilakukan dengan menghitung keragaman tiap dugaan parameter. Secara umum, nilai ragam dugaan parameter $\hat{\beta}_j$ dapat dihitung melalui rumus berikut.
+
+$$Var(\hat{\beta}_j) = \hat{\sigma}^2 C_{jj}$$
+
+Dengan matriks $C$ adalah matriks $(X'X)^{-1}$
+
+```{r}
+c <- data.frame(solve(t(x)%*%x))
+```
+
+Unsur diagonal dari matriks $C$ dapat digunakan untuk menghitung nilai galat baku dari setiap dugaan parameter. Galat baku ini dapat digunakan untuk menghitung selang kepercayaan dari dugaan yang dihasilkan.
+
+$$SE(\hat{\beta}_j) = \sqrt{Var(\hat{\beta}_j)} = \sqrt{\sigma^2 C_{jj}} = \hat{\sigma}\sqrt{c_{ii}}$$
+
+Misal ingin dihitung selang kepercayaan dari dugaan parameter $\beta_1$ (koefisien XG), maka
+
+```{r}
+y_hat    <- x %*% beta_duga
+residuals <- y - y_hat
+n        <- nrow(x)
+p        <- ncol(x)
+KTG      <- sum(residuals^2) / (n - p)
+
+c11 <- c[2,2]
+
+(se.b1 <- sqrt(KTG*c11))
+```
+
+```{r}
+alfa <- 0.05
+
+# Batas Bawah beta1
+(bb.b1 <- beta_duga[2,1] - abs(qt(alfa/2, df=n-p))*se.b1)
+```
+
+```{r}
+# Batas Atas beta1
+(ba.b1 <- beta_duga[2,1] + abs(qt(alfa/2, df=n-p))*se.b1)
+```
+
+Dengan demikian, kita dapat mengetahui selang kepercayaan untuk $\hat{\beta}_1$ (XG) pada taraf kepercayaan 95% sebagai berikut.
+
+$$
+bb.b1 < \hat{\beta}_1 < ba.b1
+$$
+
+Apabila selang kepercayaan tidak memuat nilai 0, maka $\hat{\beta}_1$ dinyatakan signifikan dalam menjelaskan rata-rata gol per pertandingan pada taraf nyata 5%. Sebaliknya, apabila selang kepercayaan memuat nilai 0, maka $\hat{\beta}_1$ tidak signifikan secara statistik.
+
+## Dengan Fungsi
+
+```{r}
+model1 <- lm(formula = GOALS ~ ., data = dt)
+summary(model1)
+```
+
+Dugaan parameter model secara matriks dan fungsi menghasilkan nilai yang sama, sehingga perhitungan matriks telah sesuai dengan hasil yang diperoleh menggunakan fungsi lm(). Berdasarkan hasil pengujian parsial, dapat diidentifikasi peubah-peubah yang berpengaruh signifikan terhadap rata-rata gol per pertandingan pada taraf signifikansi 5%. Secara simultan, model regresi yang terbentuk perlu dievaluasi berdasarkan nilai p-value uji F dan nilai Adjusted R-squared yang dihasilkan. Nilai Adjusted R-squared mencerminkan proporsi keragaman peubah respon GOALS yang dapat dijelaskan oleh peubah-peubah penjelas dalam model, sedangkan sisanya dijelaskan oleh faktor lain di luar model seperti strategi pelatih, kondisi fisik pemain, dan faktor nonteknis lainnya.
+
+# Pemeriksaan Multikolinearitas
+
+```{r}
+vif(model1)
+```
+
+Hasil uji VIF digunakan untuk memeriksa ada atau tidaknya masalah multikolinearitas antar peubah penjelas dalam model. Nilai VIF di bawah 5 mengindikasikan tidak adanya multikolinearitas yang serius, nilai antara 5 hingga 10 mengindikasikan multikolinearitas sedang, sedangkan nilai di atas 10 mengindikasikan multikolinearitas berat yang dapat memengaruhi kestabilan pendugaan parameter. Mengingat adanya beberapa peubah yang berkorelasi tinggi seperti X8 (PASS_F3RD_TOT) dan X9 (PASS_F3RD_SUC), kemungkinan besar beberapa peubah memiliki nilai VIF yang cukup tinggi. Berdasarkan hasil yang diperoleh, dapat ditentukan apakah perlu dilakukan penanganan multikolinearitas, seperti penghapusan salah satu peubah yang redundan atau penggunaan metode regresi alternatif.
